@@ -7,11 +7,9 @@ import java.util.List;
 import com.akai.Pad.LedColor;
 import com.bitwig.extension.api.util.midi.ShortMidiMessage;
 import com.bitwig.extension.callback.ShortMidiMessageReceivedCallback;
-import com.bitwig.extension.controller.api.Clip;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.ClipLauncherSlotBank;
 import com.bitwig.extension.controller.api.ControllerHost;
-import com.bitwig.extension.controller.api.CursorClip;
 import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.PinnableCursorClip;
@@ -21,11 +19,10 @@ import com.bitwig.extension.controller.api.Transport;
 import com.bitwig.extension.controller.ControllerExtension;
 
 public class matrixExtension extends ControllerExtension {
-   ControllerHost host;
-   Integer[] verticalPadsArray = { 15, 23, 31, 39, 47, 55, 63 };
-   Integer[] horizontalPadsArray = { 0, 1, 2, 3, 4, 5, 6 };
-   Integer[] navPads = { 64, 65, 66, 67, 68 };
-   Integer[] ctrlPads = { 68, 69, 70, 71 };
+   private Transport mTransport;
+   private ControllerHost host;
+   private Integer[] verticalPadsArray = { 15, 23, 31, 39, 47, 55, 63 };
+   private Integer[] horizontalPadsArray = { 0, 1, 2, 3, 4, 5, 6 };
 
    final int[][] padColumns = {
          { 8, 16, 24, 32, 40, 48, 56 },
@@ -37,19 +34,19 @@ public class matrixExtension extends ControllerExtension {
          { 14, 22, 30, 38, 46, 54, 62 }
    };
 
-   List<Integer> slotsWithHasContent = new ArrayList<>();
-   List<Integer> slotsWithIsPlaying = new ArrayList<>();
-   List<Integer> slotsWithIsPlaybackQueued = new ArrayList<>();
-   List<Integer> slotsWithIsRecording = new ArrayList<>();
-   List<Integer> slotsWithIsRecordingQueued = new ArrayList<>();
+   private List<Integer> slotsWithHasContent = new ArrayList<>();
+   private List<Integer> slotsWithIsPlaying = new ArrayList<>();
+   private List<Integer> slotsWithIsPlaybackQueued = new ArrayList<>();
+   private List<Integer> slotsWithIsRecording = new ArrayList<>();
+   private List<Integer> slotsWithIsRecordingQueued = new ArrayList<>();
 
-   final int shift = 98;
-   final int playStopPad = 7;
+   private final int shift = 98;
+   private final int playStopPad = 7;
 
-   boolean isPlaying = false;
-   boolean shiftIsPressed = false;
+   private boolean isPlaying = false;
+   private boolean shiftIsPressed = false;
 
-   PadGrid padGrid;
+   private PadGrid padGrid;
 
    enum Mode {
       CLIP_STOP,
@@ -61,48 +58,52 @@ public class matrixExtension extends ControllerExtension {
       VOID_2
    }
 
-   Mode selectedMode = Mode.CLIP_STOP;
-   final int CLIP_STOP_ID = 82;
-   final int SOLO_ID = 83;
-   final int REC_ARM_ID = 84;
-   final int MUTE_ID = 85;
-   final int SELECT_ID = 86;
-   final int VOID_1_ID = 87;
-   final int VOID_2_ID = 88;
-   final int STOP_ALL_CLIPS_ID = 89;
+   private Mode selectedMode = Mode.CLIP_STOP;
+   private final int CLIP_STOP_ID = 82;
+   private final int SOLO_ID = 83;
+   private final int REC_ARM_ID = 84;
+   private final int MUTE_ID = 85;
+   private final int SELECT_ID = 86;
+   private final int VOID_1_ID = 87;
+   private final int VOID_2_ID = 88;
+   private final int STOP_ALL_CLIPS_ID = 89;
 
-   List<Integer> verticalPads = new ArrayList<>(Arrays.asList(verticalPadsArray));
-   List<Integer> horizontalPads = new ArrayList<>(Arrays.asList(horizontalPadsArray));
+   private List<Integer> verticalPads = new ArrayList<>(Arrays.asList(verticalPadsArray));
+   private List<Integer> horizontalPads = new ArrayList<>(Arrays.asList(horizontalPadsArray));
 
-   CursorTrack cursorTrack;
-   MasterTrack masterTrack;
-   TrackBank trackBank;
-   PinnableCursorClip cursorClip;
-   ClipLauncherSlotBank cursorClipSlotBank;
-   ClipLauncherSlotBank clipSlotBank;
+   private CursorTrack cursorTrack;
+   private MasterTrack masterTrack;
+   private TrackBank trackBank;
+   private PinnableCursorClip cursorClip;
+   private ClipLauncherSlotBank cursorClipSlotBank;
+   private ClipLauncherSlotBank clipSlotBank;
 
    protected matrixExtension(final matrixExtensionDefinition definition, final ControllerHost host) {
       super(definition, host);
    }
 
-   private void animation1() {
-      int increment = 50;
-      int delay = 2500;
-      for (int i = 0; i < horizontalPadsArray.length; i++) {
-         final int finali = i;
-         host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90, horizontalPadsArray[finali], 3),
-               delay + i * increment);
-         host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90, horizontalPadsArray[finali], 3),
-               delay + i * increment);
-      }
-      for (int i = 0; i < verticalPadsArray.length; i++) {
-         final int finali = i;
-         host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90, verticalPadsArray[finali], 3),
-               delay + i * increment + horizontalPadsArray.length * increment);
-         host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90, verticalPadsArray[finali], 3),
-               delay + i * increment + horizontalPadsArray.length * increment);
-      }
-   }
+   // private void animation1() {
+   // int increment = 50;
+   // int delay = 2500;
+   // for (int i = 0; i < horizontalPadsArray.length; i++) {
+   // final int finali = i;
+   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
+   // horizontalPadsArray[finali], 3),
+   // delay + i * increment);
+   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
+   // horizontalPadsArray[finali], 3),
+   // delay + i * increment);
+   // }
+   // for (int i = 0; i < verticalPadsArray.length; i++) {
+   // final int finali = i;
+   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
+   // verticalPadsArray[finali], 3),
+   // delay + i * increment + horizontalPadsArray.length * increment);
+   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
+   // verticalPadsArray[finali], 3),
+   // delay + i * increment + horizontalPadsArray.length * increment);
+   // }
+   // }
 
    private void registerPadValueObserver(int x, int y, List<Integer> list, boolean value) {
       final int id = padColumns[x][6 - y];
@@ -190,6 +191,7 @@ public class matrixExtension extends ControllerExtension {
       this.cursorClipSlotBank = cursorTrack.clipLauncherSlotBank();
 
       setupClipPads();
+      renderSceneButtons(selectedMode);
 
       mTransport.isPlaying().addValueObserver(x -> {
          isPlaying = x;
@@ -216,6 +218,9 @@ public class matrixExtension extends ControllerExtension {
       for (int i = 0; i < verticalPads.size(); i++) {
          padGrid.setPadColor(verticalPads.get(i), LedColor.RED);
       }
+      for (int i = 82; i < 89; i++) {
+         updateLed(i, 0);
+      }
 
       padGrid.render();
    }
@@ -237,6 +242,10 @@ public class matrixExtension extends ControllerExtension {
       int clipId = 6 - Utils.getPadRow(padId, padColumns);
       cursorClipSlotBank.select(clipId);
       cursorClipSlotBank.launch(clipId);
+   }
+
+   private void stopClip() {
+      cursorClipSlotBank.stop();
    }
 
    /**
@@ -272,6 +281,27 @@ public class matrixExtension extends ControllerExtension {
             padGrid.setPadColor(data1, LedColor.GREEN);
             Track track = trackBank.getItemAt(data1);
             cursorTrack.selectChannel(track);
+
+            switch (selectedMode) {
+               case CLIP_STOP:
+                  stopClip();
+                  break;
+               case SOLO:
+                  break;
+               case REC_ARM:
+                  break;
+               case MUTE:
+                  break;
+               case SELECT:
+                  break;
+               case VOID_1:
+                  break;
+               case VOID_2:
+                  break;
+               default:
+                  break;
+            }
+
          } else if (status == ShortMidiMessage.NOTE_OFF) {
             padGrid.setPadColor(data1, LedColor.RED);
          }
@@ -288,7 +318,9 @@ public class matrixExtension extends ControllerExtension {
          }
       }
 
-      if (data1 >= CLIP_STOP_ID && data1 <= STOP_ALL_CLIPS_ID) {
+      if (data1 >= CLIP_STOP_ID && data1 <= VOID_2_ID) {
+         int modeId = modeToId(selectedMode);
+         updateLed(modeId, 0);
          switch (data1) {
             case CLIP_STOP_ID:
                this.selectedMode = Mode.CLIP_STOP;
@@ -325,6 +357,7 @@ public class matrixExtension extends ControllerExtension {
          }
       }
 
+      renderSceneButtons(selectedMode);
       padGrid.render();
    }
 
@@ -341,5 +374,33 @@ public class matrixExtension extends ControllerExtension {
          mTransport.record();
    }
 
-   private Transport mTransport;
+   private void updateLed(int id, int color) {
+      host.getMidiOutPort(0).sendMidi(0x90, id, color);
+   }
+
+   private void renderSceneButtons(Mode mode) {
+      int modeId = modeToId(mode);
+      updateLed(modeId, 1);
+   }
+
+   private int modeToId(Mode mode) {
+      switch (mode) {
+         case CLIP_STOP:
+            return CLIP_STOP_ID;
+         case SOLO:
+            return SOLO_ID;
+         case REC_ARM:
+            return REC_ARM_ID;
+         case MUTE:
+            return MUTE_ID;
+         case SELECT:
+            return SELECT_ID;
+         case VOID_1:
+            return VOID_1_ID;
+         case VOID_2:
+            return VOID_2_ID;
+         default:
+            return -1;
+      }
+   }
 }
