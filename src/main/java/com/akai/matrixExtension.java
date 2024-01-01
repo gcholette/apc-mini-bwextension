@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import com.akai.Pad.LedColor;
 import com.bitwig.extension.api.util.midi.ShortMidiMessage;
 import com.bitwig.extension.callback.ShortMidiMessageReceivedCallback;
+import com.bitwig.extension.controller.api.Clip;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.MasterTrack;
@@ -17,10 +19,12 @@ import com.bitwig.extension.controller.ControllerExtension;
 public class matrixExtension extends ControllerExtension {
    ControllerHost host;
    Integer[] verticalPadsArray = { 15, 23, 31, 39, 47, 55, 63 };
-   Integer[] horizontalPadsArray = { 0, 1, 2, 3, 4, 5, 6, 7 };
+   Integer[] horizontalPadsArray = { 0, 1, 2, 3, 4, 5, 6 };
    Integer[] navPads = { 64, 65, 66, 67, 68 };
    Integer[] ctrlPads = { 68, 69, 70, 71 };
    final Integer shift = 98;
+   final Integer playStopPad = 7;
+
 
    PadGrid padGrid;
 
@@ -53,6 +57,7 @@ public class matrixExtension extends ControllerExtension {
    CursorTrack cursorTrack;
    MasterTrack masterTrack;
    TrackBank trackBank;
+   Clip cursorClip;
 
    protected matrixExtension(final matrixExtensionDefinition definition, final ControllerHost host) {
       super(definition, host);
@@ -81,24 +86,35 @@ public class matrixExtension extends ControllerExtension {
    public void init() {
       this.host = getHost();
 
-      host.println("hello");
       mTransport = host.createTransport();
       host.getMidiInPort(0).setMidiCallback((ShortMidiMessageReceivedCallback) msg -> onMidi0(msg));
       host.getMidiInPort(0).setSysexCallback((String data) -> onSysex0(data));
 
-      this.padGrid = new PadGrid();
+      initPads();
 
-      for (int i = 0; i < 64; i++) {
-         host.getMidiOutPort(0).sendMidi(0x90, i, 0);
-      }
-
-      this.trackBank = host.createTrackBank(14, 0, 0);
+      this.trackBank = host.createTrackBank(7, 0, 7);
       this.cursorTrack = host.createCursorTrack(0, 0);
       this.masterTrack = host.createMasterTrack(0);
-
-      animation1();
+      this.cursorClip = host.createLauncherCursorClip(7, 7);
 
       host.showPopupNotification("matrix Initialized");
+   }
+
+   private void initPads() {
+      this.padGrid = new PadGrid(host);
+
+      for (int i = 0; i < 64; i++) {
+         padGrid.setPadColor(i, LedColor.OFF);
+      }
+      for (int i = 0; i < horizontalPads.size(); i++) {
+         padGrid.setPadColor(horizontalPads.get(i), LedColor.RED);
+      }
+      for (int i = 0; i < verticalPads.size(); i++) {
+         padGrid.setPadColor(verticalPads.get(i), LedColor.RED);
+      }
+
+      // animation1();
+      padGrid.render();
    }
 
    @Override
@@ -122,17 +138,40 @@ public class matrixExtension extends ControllerExtension {
       host.println("data1 " + data1);
       host.println("data2 " + data2);
 
+      // Center pads
+      if (data1 >= 0 && data1 < 64 && !horizontalPads.contains(data1) && !verticalPads.contains(data1)) {
+         if (status == ShortMidiMessage.NOTE_ON) {
+            padGrid.setPadColor(data1, LedColor.GREEN);
+         } else if (status == ShortMidiMessage.NOTE_OFF) {
+            padGrid.setPadColor(data1, LedColor.OFF);
+         }
+      }
+
+      if (data1 == 7) {
+         mTransport.stop();
+      }
+
+      // Horizontal pads
       if (horizontalPads.contains(data1)) {
          if (status == ShortMidiMessage.NOTE_ON) {
-            host.println("On");
-            host.getMidiOutPort(0).sendMidi(0x90, data1, 1);
+            padGrid.setPadColor(data1, LedColor.GREEN);
             Track track = trackBank.getItemAt(data1);
             cursorTrack.selectChannel(track);
          } else if (status == ShortMidiMessage.NOTE_OFF) {
-            host.println("Off");
-            host.getMidiOutPort(0).sendMidi(0x90, data1, 3);
+            padGrid.setPadColor(data1, LedColor.RED);
          }
       }
+
+      // Vertical pads
+      if (verticalPads.contains(data1)) {
+         if (status == ShortMidiMessage.NOTE_ON) {
+            padGrid.setPadColor(data1, LedColor.GREEN);
+            trackBank.sceneBank().launch(6 - verticalPads.indexOf(data1));
+         } else if (status == ShortMidiMessage.NOTE_OFF) {
+            padGrid.setPadColor(data1, LedColor.RED);
+         }
+      }
+
       if (data1 >= 82 && data1 <= 89) {
          switch (data1) {
             case 82:
@@ -154,6 +193,8 @@ public class matrixExtension extends ControllerExtension {
             default:
          }
       }
+
+      padGrid.render();
    }
 
    private void onSysex0(final String data) {
