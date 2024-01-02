@@ -33,7 +33,6 @@ public class PadGrid {
     }
 
     public void render() {
-        host.println("Rendering.");
         ArrayList<Pad> padsToRender = new ArrayList<Pad>();
 
         for (int i = 0; i < pads.size(); i++) {
@@ -41,8 +40,6 @@ public class PadGrid {
                 padsToRender.add(pads.get(i));
             }
         }
-
-        host.println("Pads to render: " + padsToRender.size());
 
         for (int i = 0; i < padsToRender.size(); i++) {
             Pad padToRender = padsToRender.get(i);

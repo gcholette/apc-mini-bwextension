@@ -37,6 +37,7 @@ public class matrixExtension extends ControllerExtension {
    private List<Integer> slotsWithHasContent = new ArrayList<>();
    private List<Integer> slotsWithIsPlaying = new ArrayList<>();
    private List<Integer> slotsWithIsPlaybackQueued = new ArrayList<>();
+   private List<Integer> slotsWithIsStopQueued = new ArrayList<>();
    private List<Integer> slotsWithIsRecording = new ArrayList<>();
    private List<Integer> slotsWithIsRecordingQueued = new ArrayList<>();
 
@@ -45,6 +46,7 @@ public class matrixExtension extends ControllerExtension {
 
    private boolean isPlaying = false;
    private boolean shiftIsPressed = false;
+   private int selectedTrackId = 0;
 
    private PadGrid padGrid;
 
@@ -141,6 +143,10 @@ public class matrixExtension extends ControllerExtension {
                registerPadValueObserver(finali, finalj, slotsWithIsPlaying, x);
             });
 
+            track.isQueuedForStop().addValueObserver(x -> {
+               registerPadValueObserver(finali, finalj, slotsWithIsStopQueued, x);
+            });
+
             slot.isRecording().addValueObserver(x -> {
                registerPadValueObserver(finali, finalj, slotsWithIsRecording, x);
             });
@@ -148,6 +154,7 @@ public class matrixExtension extends ControllerExtension {
             slot.isRecordingQueued().addValueObserver(x -> {
                registerPadValueObserver(finali, finalj, slotsWithIsRecordingQueued, x);
             });
+
          }
       }
    }
@@ -157,7 +164,9 @@ public class matrixExtension extends ControllerExtension {
          for (int j = 0; j < 7; j++) {
             final int id = padColumns[i][6 - j];
 
-            if (slotsWithIsPlaying.contains(id)) {
+            if (slotsWithIsStopQueued.contains(id)) {
+               padGrid.setPadColor(id, LedColor.RED);
+            } else if (slotsWithIsPlaying.contains(id)) {
                padGrid.setPadColor(id, LedColor.GREEN);
             } else if (slotsWithIsPlaybackQueued.contains(id)) {
                padGrid.setPadColor(id, LedColor.GREEN_BLINK);
@@ -171,6 +180,31 @@ public class matrixExtension extends ControllerExtension {
                padGrid.setPadColor(id, LedColor.OFF);
             }
          }
+      }
+      padGrid.render();
+   }
+
+   private void cursorTrackPositionListener(int index) {
+      host.println("Cursor Index: " + index);
+      if (index >= 0) {
+         this.selectedTrackId = index;
+         for (int i = 0; i < 8; i++) {
+            if (i == index) {
+               host.println("Hi there " + index + i);
+               padGrid.setPadColor(i, LedColor.GREEN);
+            } else {
+               padGrid.setPadColor(i, LedColor.RED);
+            }
+         }
+         padGrid.render();
+      }
+   }
+
+   private void transportIsPlayingListener(boolean isPlaying) {
+      if (isPlaying == true) {
+         padGrid.setPadColor(playStopPad, LedColor.GREEN);
+      } else {
+         padGrid.setPadColor(playStopPad, LedColor.RED);
       }
       padGrid.render();
    }
@@ -193,15 +227,8 @@ public class matrixExtension extends ControllerExtension {
       setupClipPads();
       renderSceneButtons(selectedMode);
 
-      mTransport.isPlaying().addValueObserver(x -> {
-         isPlaying = x;
-         if (isPlaying == true) {
-            padGrid.setPadColor(playStopPad, LedColor.GREEN_BLINK);
-         } else {
-            padGrid.setPadColor(playStopPad, LedColor.OFF);
-         }
-         padGrid.render();
-      });
+      mTransport.isPlaying().addValueObserver(this::transportIsPlayingListener);
+      cursorTrack.position().addValueObserver(this::cursorTrackPositionListener);
 
       host.showPopupNotification("Matrix Initialized");
    }
@@ -239,22 +266,41 @@ public class matrixExtension extends ControllerExtension {
     * @param padId 8 - 62
     */
    private void launchClip(int padId) {
+      int trackId = Utils.getPadColum(padId, padColumns);
       int clipId = 6 - Utils.getPadRow(padId, padColumns);
-      cursorClipSlotBank.select(clipId);
-      cursorClipSlotBank.launch(clipId);
+      Track track = trackBank.getItemAt(trackId);
+      ClipLauncherSlotBank bank = track.clipLauncherSlotBank();
+      bank.select(clipId);
+      bank.launch(clipId);
    }
 
-   private void stopClip() {
-      cursorClipSlotBank.stop();
+   /**
+    * @param padId 8 - 62
+    */
+   private void releaseClip(int padId) {
+      int trackId = Utils.getPadColum(padId, padColumns);
+      int clipId = 6 - Utils.getPadRow(padId, padColumns);
+      Track track = trackBank.getItemAt(trackId);
+      ClipLauncherSlotBank bank = track.clipLauncherSlotBank();
+      bank.getItemAt(clipId).launchRelease();
+   }
+
+   /**
+    * @param padId 0 - 7
+    */
+   private void stopTrack(int padId) {
+      Track track = trackBank.getItemAt(padId);
+      ClipLauncherSlotBank bank = track.clipLauncherSlotBank();
+      bank.stop();
    }
 
    /**
     * @param padId 0 - 7
     */
    private void selectTrack(int padId) {
-      int trackId = Utils.getPadColum(padId, padColumns);
-      Track track = trackBank.getItemAt(trackId);
+      Track track = trackBank.getItemAt(padId);
       cursorTrack.selectChannel(track);
+      selectedTrackId = padId;
    }
 
    private void onMidi0(ShortMidiMessage msg) {
@@ -270,21 +316,18 @@ public class matrixExtension extends ControllerExtension {
       // Center pads
       if (data1 > 7 && data1 < 63 && !verticalPads.contains(data1)) {
          if (status == ShortMidiMessage.NOTE_ON) {
-            selectTrack(data1);
             launchClip(data1);
+         } else if (status == ShortMidiMessage.NOTE_OFF) {
+            releaseClip(data1);
          }
       }
 
       // Horizontal pads
       if (horizontalPads.contains(data1)) {
          if (status == ShortMidiMessage.NOTE_ON) {
-            padGrid.setPadColor(data1, LedColor.GREEN);
-            Track track = trackBank.getItemAt(data1);
-            cursorTrack.selectChannel(track);
-
             switch (selectedMode) {
                case CLIP_STOP:
-                  stopClip();
+                  stopTrack(data1);
                   break;
                case SOLO:
                   break;
@@ -293,6 +336,7 @@ public class matrixExtension extends ControllerExtension {
                case MUTE:
                   break;
                case SELECT:
+                  selectTrack(data1);
                   break;
                case VOID_1:
                   break;
@@ -303,7 +347,11 @@ public class matrixExtension extends ControllerExtension {
             }
 
          } else if (status == ShortMidiMessage.NOTE_OFF) {
-            padGrid.setPadColor(data1, LedColor.RED);
+            if (data1 == selectedTrackId) {
+               // padGrid.setPadColor(data1, LedColor.YELLOW);
+            } else {
+               // padGrid.setPadColor(data1, LedColor.RED);
+            }
          }
       }
 
