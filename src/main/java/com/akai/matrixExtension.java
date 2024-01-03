@@ -10,6 +10,7 @@ import com.bitwig.extension.callback.ShortMidiMessageReceivedCallback;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.ClipLauncherSlotBank;
 import com.bitwig.extension.controller.api.ControllerHost;
+import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.CursorTrack;
 import com.bitwig.extension.controller.api.MasterTrack;
 import com.bitwig.extension.controller.api.PinnableCursorClip;
@@ -21,9 +22,9 @@ import com.bitwig.extension.controller.ControllerExtension;
 public class matrixExtension extends ControllerExtension {
    private Transport mTransport;
    private ControllerHost host;
+
    private Integer[] verticalPadsArray = { 15, 23, 31, 39, 47, 55, 63 };
    private Integer[] horizontalPadsArray = { 0, 1, 2, 3, 4, 5, 6 };
-
    final int[][] padColumns = {
          { 8, 16, 24, 32, 40, 48, 56 },
          { 9, 17, 25, 33, 41, 49, 57 },
@@ -70,6 +71,12 @@ public class matrixExtension extends ControllerExtension {
    private final int VOID_2_ID = 88;
    private final int STOP_ALL_CLIPS_ID = 89;
 
+   private int selectedFaderCtrl = 68;
+   private final int VOLUME_ID = 68;
+   private final int PAN_ID = 69;
+   private final int SEND_ID = 70;
+   private final int DEVICE_ID = 71;
+
    private List<Integer> verticalPads = new ArrayList<>(Arrays.asList(verticalPadsArray));
    private List<Integer> horizontalPads = new ArrayList<>(Arrays.asList(horizontalPadsArray));
 
@@ -79,33 +86,37 @@ public class matrixExtension extends ControllerExtension {
    private PinnableCursorClip cursorClip;
    private ClipLauncherSlotBank cursorClipSlotBank;
    private ClipLauncherSlotBank clipSlotBank;
+   private CursorRemoteControlsPage remoteControlsPage;
 
    protected matrixExtension(final matrixExtensionDefinition definition, final ControllerHost host) {
       super(definition, host);
    }
 
-   // private void animation1() {
-   // int increment = 50;
-   // int delay = 2500;
-   // for (int i = 0; i < horizontalPadsArray.length; i++) {
-   // final int finali = i;
-   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
-   // horizontalPadsArray[finali], 3),
-   // delay + i * increment);
-   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
-   // horizontalPadsArray[finali], 3),
-   // delay + i * increment);
-   // }
-   // for (int i = 0; i < verticalPadsArray.length; i++) {
-   // final int finali = i;
-   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
-   // verticalPadsArray[finali], 3),
-   // delay + i * increment + horizontalPadsArray.length * increment);
-   // host.scheduleTask(() -> getMidiOutPort(0).sendMidi(0x90,
-   // verticalPadsArray[finali], 3),
-   // delay + i * increment + horizontalPadsArray.length * increment);
-   // }
-   // }
+   @Override
+   public void init() {
+      this.host = getHost();
+      initPads();
+
+      mTransport = host.createTransport();
+      host.getMidiInPort(0).setMidiCallback((ShortMidiMessageReceivedCallback) msg -> onMidi0(msg));
+      host.getMidiInPort(0).setSysexCallback((String data) -> onSysex0(data));
+
+      this.trackBank = host.createTrackBank(7, 0, 7);
+      this.cursorTrack = host.createCursorTrack(0, 7);
+      this.masterTrack = host.createMasterTrack(0);
+      this.cursorClip = cursorTrack.createLauncherCursorClip(7, 7);
+      this.cursorClipSlotBank = cursorTrack.clipLauncherSlotBank();
+      this.remoteControlsPage = cursorTrack.createCursorRemoteControlsPage(9);
+
+      setupClipPads();
+      renderSceneButtons(selectedMode);
+      renderFaderCtrlButtons(selectedFaderCtrl);
+
+      mTransport.isPlaying().addValueObserver(this::transportIsPlayingListener);
+      cursorTrack.position().addValueObserver(this::cursorTrackPositionListener);
+
+      host.showPopupNotification("Matrix Initialized");
+   }
 
    private void registerPadValueObserver(int x, int y, List<Integer> list, boolean value) {
       final int id = padColumns[x][6 - y];
@@ -190,7 +201,6 @@ public class matrixExtension extends ControllerExtension {
          this.selectedTrackId = index;
          for (int i = 0; i < 8; i++) {
             if (i == index) {
-               host.println("Hi there " + index + i);
                padGrid.setPadColor(i, LedColor.GREEN);
             } else {
                padGrid.setPadColor(i, LedColor.RED);
@@ -200,37 +210,14 @@ public class matrixExtension extends ControllerExtension {
       }
    }
 
-   private void transportIsPlayingListener(boolean isPlaying) {
-      if (isPlaying == true) {
+   private void transportIsPlayingListener(boolean isPlaying2) {
+      if (isPlaying2 == true) {
          padGrid.setPadColor(playStopPad, LedColor.GREEN);
       } else {
          padGrid.setPadColor(playStopPad, LedColor.RED);
       }
+      this.isPlaying = isPlaying2;
       padGrid.render();
-   }
-
-   @Override
-   public void init() {
-      this.host = getHost();
-      initPads();
-
-      mTransport = host.createTransport();
-      host.getMidiInPort(0).setMidiCallback((ShortMidiMessageReceivedCallback) msg -> onMidi0(msg));
-      host.getMidiInPort(0).setSysexCallback((String data) -> onSysex0(data));
-
-      this.trackBank = host.createTrackBank(7, 0, 7);
-      this.cursorTrack = host.createCursorTrack(0, 7);
-      this.masterTrack = host.createMasterTrack(0);
-      this.cursorClip = cursorTrack.createLauncherCursorClip(7, 7);
-      this.cursorClipSlotBank = cursorTrack.clipLauncherSlotBank();
-
-      setupClipPads();
-      renderSceneButtons(selectedMode);
-
-      mTransport.isPlaying().addValueObserver(this::transportIsPlayingListener);
-      cursorTrack.position().addValueObserver(this::cursorTrackPositionListener);
-
-      host.showPopupNotification("Matrix Initialized");
    }
 
    private void initPads() {
@@ -397,6 +384,10 @@ public class matrixExtension extends ControllerExtension {
          }
       }
 
+      if (data1 >= 68 && data1 <= 71) {
+         this.selectedFaderCtrl = data1;
+      }
+
       if (data1 == playStopPad && status == ShortMidiMessage.NOTE_ON) {
          if (isPlaying) {
             mTransport.stop();
@@ -405,8 +396,38 @@ public class matrixExtension extends ControllerExtension {
          }
       }
 
-      renderSceneButtons(selectedMode);
-      padGrid.render();
+      // Sliders
+      if (status == 176) {
+         int faderIndex = data1 - 48;
+         float normalizedValue = data2 / 127.0f;
+         if (faderIndex == 7) {
+            // masterTrack.volume().set(normalizedValue);
+         } else if (faderIndex == 8) {
+            masterTrack.volume().set(normalizedValue);
+         } else {
+            switch (selectedFaderCtrl) {
+               case VOLUME_ID:
+                  trackBank.getItemAt(faderIndex).volume().set(normalizedValue);
+                  break;
+               case PAN_ID:
+                  trackBank.getItemAt(faderIndex).pan().set(normalizedValue);
+                  break;
+               case DEVICE_ID:
+                  remoteControlsPage.getParameter(faderIndex).set(normalizedValue);
+                  break;
+               default:
+                  break;
+            }
+         }
+      }
+
+      // Never render when the sliders update
+      // Too spammy for the controller
+      if (status != 176) {
+         renderSceneButtons(selectedMode);
+         renderFaderCtrlButtons(selectedFaderCtrl);
+         padGrid.render();
+      }
    }
 
    private void onSysex0(final String data) {
@@ -429,6 +450,14 @@ public class matrixExtension extends ControllerExtension {
    private void renderSceneButtons(Mode mode) {
       int modeId = modeToId(mode);
       updateLed(modeId, 1);
+   }
+
+   private void renderFaderCtrlButtons(int id) {
+      updateLed(68, 0);
+      updateLed(69, 0);
+      updateLed(70, 0);
+      updateLed(71, 0);
+      updateLed(id, 1);
    }
 
    private int modeToId(Mode mode) {
